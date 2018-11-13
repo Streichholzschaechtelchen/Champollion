@@ -14,7 +14,7 @@ import pylab
 from wikiextractor.WikiExtractor import process_dump
 
 WORD_REGEXP = r'\w+'
-INDEX_FORMAT = '{0}/index.xml'
+INDEX_FORMAT = '{0}/index{1}.xml'
 BIG_INDEX_FORMAT = '{0}/big_index.xml'
 DOWNLOAD_FORMAT = 'http://download.wikimedia.org/{0}wiki/latest/{0}wiki-latest-pages-articles.xml.bz2'
 FOUND_FORMAT = '{1} ({0} words)'
@@ -90,21 +90,28 @@ def words(args, print_=True):
     if args.b:
         index = BIG_INDEX_FORMAT.format(args.wiki)
     else:
-        index = INDEX_FORMAT.format(args.wiki)
+        index = INDEX_FORMAT.format(args.wiki, '')
+
+    in_c = 0
 
     regexp = re.compile('^\s*{0}\s*$'.format(args.a))
 
-    with open(index, 'r') as i:
-        tree = BeautifulSoup(i, "lxml")
-        for doc in tree.find_all('doc'):
-            if regexp.match(doc.string):
-                with open(doc['href'], 'r') as i2:
-                    tree2 = BeautifulSoup(i2, "lxml")
-                    for doc in tree2.find_all('doc'):
-                        if regexp.match(doc['title']):
-                            if print_:
-                                print(doc.string)
-                            return doc.string
+    while exists(index):
+        with open(index, 'r') as i:
+            tree = BeautifulSoup(i, "lxml")
+            for doc in tree.find_all('doc'):
+                if regexp.match(doc.string):
+                    with open(doc['href'], 'r') as i2:
+                        tree2 = BeautifulSoup(i2, "lxml")
+                        for doc in tree2.find_all('doc'):
+                            if regexp.match(doc['title']):
+                                if print_:
+                                    print(doc.string)
+                                return doc.string
+        if args.b:
+            break
+        in_c += 1
+        index = INDEX_FORMAT.format(args.wiki, in_c)
 
     print('Article {0} not found.'.format(args.a))
 
@@ -116,19 +123,23 @@ def grep(args):
 
     regexp = re.compile(args.r)
     
-    index = INDEX_FORMAT.format(args.wiki)
+    index = INDEX_FORMAT.format(args.wiki, '')
+    in_c = 0
 
     print("Following articles match your regexp:")
 
     flag = True
-    
-    with open(index, 'r') as i:
-        tree = BeautifulSoup(i, "lxml")
-        for doc in tree.find_all('doc'):
-            doc.string = doc.string.replace("\n","")
-            if regexp.search(doc.string):
-                print(FOUND_FORMAT.format(doc['size'], doc.string))
-                flag = False
+
+    while exists(index):
+        with open(index, 'r') as i:
+            tree = BeautifulSoup(i, "lxml")
+            for doc in tree.find_all('doc'):
+                doc.string = doc.string.replace("\n","")
+                if regexp.search(doc.string):
+                    print(FOUND_FORMAT.format(doc['size'], doc.string))
+                    flag = False
+        in_c += 1
+        index = INDEX_FORMAT.format(args.wiki, in_c)
 
     if flag:
         print("No article found.")
@@ -167,16 +178,21 @@ def create_index(args):
         print('folder {0} does not exist'.format(args.wiki))
         return
 
-    index = INDEX_FORMAT.format(args.wiki)
+    index = INDEX_FORMAT.format(args.wiki, '')
 
     if exists(index):
         if args.ow:
             print('-ow flag set: overwriting existing index {0}'.format(index))
-            remove(index)
+            in_c = 0
+            while exists(index):
+                remove(index)
+                in_c += 1
+                index = INDEX_FORMAT.format(args.wiki, in_c)
         else:
             print('cannot overwrite existing index {0}: -ow flag not set'.format(index))
             return
 
+    index = INDEX_FORMAT.format(args.wiki, '')
     big_index = BIG_INDEX_FORMAT.format(args.wiki)
 
     if exists(big_index):
@@ -189,6 +205,8 @@ def create_index(args):
 
     in_ = BeautifulSoup(features='xml')
     big_in = BeautifulSoup(features='lxml')
+
+    in_c = 0
 
     print('')
     
@@ -227,6 +245,12 @@ def create_index(args):
                                 if size >= 10000:
                                     big_in.append(in_entry)
                     remove(file_abs)
+            if i_ > 0 and i_ % 25 == 0:
+                with open(index, 'w') as in_file:
+                    in_file.write(in_.prettify(formatter="xml"))
+                in_ = BeautifulSoup(features="lxml")
+                in_c += 1
+                index = INDEX_FORMAT.format(args.wiki, in_c)
 
     with open(index, 'w') as in_file:
         in_file.write(in_.prettify(formatter="xml"))
