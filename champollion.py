@@ -14,8 +14,8 @@ import pylab
 from wikiextractor.WikiExtractor import process_dump
 
 WORD_REGEXP = r'\w+'
-INDEX_FORMAT = '{0}/index{1}.xml'
-BIG_INDEX_FORMAT = '{0}/big_index.xml'
+INDEX_FORMAT = '{0}/index'
+BIG_INDEX_FORMAT = '{0}/big_index'
 DOWNLOAD_FORMAT = 'http://download.wikimedia.org/{0}wiki/latest/{0}wiki-latest-pages-articles.xml.bz2'
 FOUND_FORMAT = '{1} ({0} words)'
 
@@ -25,6 +25,9 @@ def erase_line():
 
 def words_from_text(text):
     return ' '.join(re.findall(WORD_REGEXP, text))
+
+def get_prefix(s):
+   return ''.join(c for c in s if c.isalnum())[:3]
 
 def draw(graph_of_words):
 
@@ -90,29 +93,27 @@ def words(args, print_=True):
     if args.b:
         index = BIG_INDEX_FORMAT.format(args.wiki)
     else:
-        index = INDEX_FORMAT.format(args.wiki, '')
+        index = INDEX_FORMAT.format(args.wiki)
 
-    in_c = 0
+    if not exists(index):
+        print("index for {0} does not exist".format(args.wiki))
 
-    regexp = re.compile('^\s*{0}\s*$'.format(args.a))
+    prefix = get_prefix(args.a)
 
-    while exists(index):
-        with open(index, 'r') as i:
-            tree = BeautifulSoup(i, "lxml")
-            for doc in tree.find_all('doc'):
-                if regexp.match(doc.string):
-                    with open(doc['href'], 'r') as i2:
-                        tree2 = BeautifulSoup(i2, "lxml")
-                        for doc in tree2.find_all('doc'):
-                            if regexp.match(doc['title']):
-                                if print_:
-                                    print(doc.string)
-                                return doc.string
-        if args.b:
-            break
-        in_c += 1
-        index = INDEX_FORMAT.format(args.wiki, in_c)
+    index_file = join(index, prefix + '.xml')
 
+    with open(index_file, 'r') as i:
+        tree = BeautifulSoup(i, "lxml")
+        for doc in tree.find_all('doc'):
+            if doc.string.replace("\n","") == args.a:
+                with open(doc['href'], 'r') as i2:
+                    tree2 = BeautifulSoup(i2, "lxml")
+                    for doc in tree2.find_all('doc'):
+                        if doc['title'] == args.a:
+                            if print_:
+                                print(doc.string)
+                            return doc.string
+               
     print('Article {0} not found.'.format(args.a))
 
 def grep(args):
@@ -123,23 +124,25 @@ def grep(args):
 
     regexp = re.compile(args.r)
     
-    index = INDEX_FORMAT.format(args.wiki, '')
-    in_c = 0
+    index = INDEX_FORMAT.format(args.wiki)
+
+    if not exists(index):
+        print("index for {0} does not exist".format(args.wiki))
 
     print("Following articles match your regexp:")
 
     flag = True
 
-    while exists(index):
-        with open(index, 'r') as i:
-            tree = BeautifulSoup(i, "lxml")
-            for doc in tree.find_all('doc'):
-                doc.string = doc.string.replace("\n","")
-                if regexp.search(doc.string):
-                    print(FOUND_FORMAT.format(doc['size'], doc.string))
-                    flag = False
-        in_c += 1
-        index = INDEX_FORMAT.format(args.wiki, in_c)
+    for _, _, files in walk(index):
+        for index_file in files:
+            index_abs = join(index, index_file)
+            with open(index_abs, 'r') as i:
+                tree = BeautifulSoup(i, "lxml")
+                for doc in tree.find_all('doc'):
+                    doc.string = doc.string.replace("\n","")
+                    if regexp.search(doc.string):
+                        print(FOUND_FORMAT.format(doc['size'], doc.string))
+                        flag = False
 
     if flag:
         print("No article found.")
@@ -153,66 +156,75 @@ def list_big(args):
         print('index for {0} does not exist'.format(args.wiki))
         return
 
-    with open(big_index, 'r') as i:
-        tree = BeautifulSoup(i, "lxml")
-        sol = []
-        len_sol = 0
-        flag = False
-        for doc in tree.find_all('doc'):
-            doc.string = doc.string.replace("\n","")
-            if len_sol < args.n:
-                sol.append((int(doc['size']), doc.string))
-                len_sol += 1
-                if len_sol == args.n:
-                    heapify(sol)
-            else:
-                heappushpop(sol, (int(doc['size']), doc.string))
-
+    sol = []
+    len_sol = 0
+    
+    for _, _, files in walk(big_index):
+        for index_file in files:
+           index_abs = join(big_index, index_file) 
+           with open(index_abs, 'r') as i:
+               tree = BeautifulSoup(i, "lxml")
+               for doc in tree.find_all('doc'):
+                   if len_sol < args.n:
+                       sol.append((int(doc['size']), doc.string))
+                       len_sol += 1
+                       if len_sol == args.n:
+                           heapify(sol)
+                   else:
+                       heappushpop(sol, (int(doc['size']), doc.string))
+                       
     sol.sort(reverse=True)
     for s in sol:
         print(FOUND_FORMAT.format(*s))
+
+def add_to_index(doc, xml_file, index):
     
+    prefix = get_prefix(doc['title'])
+    index_file = join(index, prefix + '.xml')
+    in_ = BeautifulSoup(features='lxml')
+    in_entry = in_.new_tag('doc',
+                           href=xml_file,
+                           size=len(doc.string))
+    in_entry.string = doc['title']
+    with open(index_file, 'a+') as o:
+        o.write(str(in_entry))
+
 def create_index(args):
 
     if not exists(args.wiki):
         print('folder {0} does not exist'.format(args.wiki))
         return
 
-    index = INDEX_FORMAT.format(args.wiki, '')
+    index = INDEX_FORMAT.format(args.wiki)
+    big_index = BIG_INDEX_FORMAT.format(args.wiki)
 
     if exists(index):
         if args.ow:
             print('-ow flag set: overwriting existing index {0}'.format(index))
-            in_c = 0
-            while exists(index):
-                remove(index)
-                in_c += 1
-                index = INDEX_FORMAT.format(args.wiki, in_c)
+            rmtree(index)
         else:
             print('cannot overwrite existing index {0}: -ow flag not set'.format(index))
             return
-
-    index = INDEX_FORMAT.format(args.wiki, '')
-    big_index = BIG_INDEX_FORMAT.format(args.wiki)
+    
+    mkdir(index)
 
     if exists(big_index):
         if args.ow:
             print('-ow flag set: overwriting existing index {0}'.format(index))
-            remove(big_index)
+            rmtree(big_index)
         else:
             print('cannot overwrite existing index {0}: -ow flag not set'.format(index))
             return
 
-    in_ = BeautifulSoup(features='xml')
-    big_in = BeautifulSoup(features='lxml')
-
-    in_c = 0
+    mkdir(big_index)
 
     print('')
     
     for _, dirs, _ in walk(args.wiki):
         n_dirs = len(dirs)
         for (i_, dir_) in enumerate(dirs):
+            if dir_ in ['index', 'big_index']:
+                continue
             dir_abs = join(args.wiki, dir_)
             for _, _, files in walk(dir_abs):
                 n_files = len(files)
@@ -230,33 +242,17 @@ def create_index(args):
                                 del doc['url']
                                 raw_text = doc.string
                                 try:
-                                     words = words_from_text(raw_text)
-                                     doc.string = words
-                                     size = len(words)
+                                     doc.string = words_from_text(raw_text)
                                 except:
-                                     doc.string = ''
-                                     size = 0
+                                     continue
                                 o.write(doc.prettify(formatter="xml"))
-                                in_entry = in_.new_tag('doc',
-                                                       href=xml_file,
-                                                       size=len(words))
-                                in_entry.string = doc['title']
-                                in_.append(in_entry)
-                                if size >= 10000:
-                                    big_in.append(in_entry)
+                                add_to_index(doc, xml_file, index)
+                                if len(doc.string) >= 10000:
+                                    add_to_index(doc, xml_file, big_index)
                     remove(file_abs)
-            if i_ > 0 and i_ % 25 == 0:
-                with open(index, 'w') as in_file:
-                    in_file.write(in_.prettify(formatter="xml"))
-                in_ = BeautifulSoup(features="lxml")
-                in_c += 1
-                index = INDEX_FORMAT.format(args.wiki, in_c)
 
-    with open(index, 'w') as in_file:
-        in_file.write(in_.prettify(formatter="xml"))
-
-    with open(big_index, 'w') as big_in_file:
-        big_in_file.write(big_in.prettify(formatter="xml"))
+    erase_line()
+    print('Processed all folders and created index.'.format(n_dirs))
 
 def download(args):
 
@@ -266,7 +262,7 @@ def download(args):
             rmtree(args.wiki)
         else:
             print('cannot overwrite existing folder {0}: -ow flag not set'.format(args.wiki))
-            return
+            return False
         
     url = DOWNLOAD_FORMAT.format(args.wiki)
     filename = wget.download(url)
@@ -277,6 +273,8 @@ def download(args):
                      '-o', args.wiki,
                      filename])
     remove(filename)
+    
+    return True
 
 def delete(args):
 
@@ -300,8 +298,8 @@ if __name__ == "__main__":
     parser.add_argument('-f', action='store', type=float, help='a factor')
     args = parser.parse_args()
     if args.command == 'download':
-        download(args)
-        create_index(args)
+        if download(args):
+            create_index(args)
     elif args.command == 'create_index':
         create_index(args)
     elif args.command == 'delete':
@@ -314,3 +312,5 @@ if __name__ == "__main__":
         words(args)
     elif args.command == 'draw':
         draw(graph_of_words(args, words(args, print_=False)))
+    else:
+        print('unknown command {0}'.format(args.command))
