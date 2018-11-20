@@ -1,6 +1,7 @@
 import argparse
 import wget
 import re
+import json
 from os import mkdir, remove, walk
 from os.path import exists, join
 from shutil import rmtree
@@ -12,6 +13,8 @@ import networkx as nx
 import pylab
 
 from wikiextractor.WikiExtractor import process_dump
+
+import benchmark as bm
 
 WORD_REGEXP = r'\w+'
 INDEX_FORMAT = '{0}/index'
@@ -84,7 +87,7 @@ def graph_of_words(args, text):
                         edges[(word, neighbor)] = val
     return edges
 
-def words(args, print_=True):
+def words(args, print_=True, case=False):
 
     if not args.a:
         print('no article title given')
@@ -110,6 +113,8 @@ def words(args, print_=True):
                     tree2 = BeautifulSoup(i2, "lxml")
                     for doc in tree2.find_all('doc'):
                         if doc['title'] == args.a:
+                            if not case:
+                                doc.string = doc.string.lower()
                             if print_:
                                 print(doc.string)
                             return doc.string
@@ -283,19 +288,34 @@ def delete(args):
     else:
         print('folder {0} does not exist'.format(args.wiki))
 
+def benchmark(args):
+
+    english_text = words(args, print_=False)
+    args.wiki = args.wiki2
+    args.a = args.a2
+    french_text = words(args, print_=False)
+    with open(args.l, 'r') as f:
+        lexicon = json.load(f)
+    return bm.translate(english_text, french_text, lexicon)
+    
+#Integrate lexicon extraction to champollion.py
+
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser()
     parser.add_argument('command', metavar='cmd', type=str, help='a command')
     parser.add_argument('wiki', metavar='xx', type=str, help='a wiki code')
+    parser.add_argument('wiki2', metavar='yy', type=str, nargs='?', help='another wiki code')
     parser.add_argument('-ow', action='store_true', help='overwrite existing files')
     parser.add_argument('-n', action='store', type=int, default=25, help='number of articles to return')
     parser.add_argument('-r', action='store', type=str, help='a regular expression')
     parser.add_argument('-a', action='store', type=str, help='an article title')
+    parser.add_argument('-a2', action='store', type=str, help='another article title')
     parser.add_argument('-b', action='store_true', help='restrict search to big articles')
     parser.add_argument('-w', action='store', type=int, help='size of the window')
     parser.add_argument('-m', action='store', type=int, help='count threshold')
     parser.add_argument('-f', action='store', type=float, help='a factor')
+    parser.add_argument('-l', action='store', type=str, help='a lexicon file')
     args = parser.parse_args()
     if args.command == 'download':
         if download(args):
@@ -312,5 +332,7 @@ if __name__ == "__main__":
         words(args)
     elif args.command == 'draw':
         draw(graph_of_words(args, words(args, print_=False)))
+    elif args.command == 'benchmark':
+        benchmark(args)
     else:
         print('unknown command {0}'.format(args.command))
