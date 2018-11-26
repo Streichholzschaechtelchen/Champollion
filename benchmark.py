@@ -3,8 +3,9 @@ import heapq
 import re
 
 WINDOW_SIZE = 5
-MIN_FREQ = 75
-NB_TRANSLATIONS = 20
+MIN_FREQ_SOURCE = 75
+MIN_FREQ_DEST = 25
+NB_TRANSLATIONS = 5
 
 def _move_window(a, b, c, max_, window_size):
     if b < max_:
@@ -25,17 +26,19 @@ def _get_text(words):
     correctword = re.compile('^[^0-9\s]+$')
     return [word for word in newwords if correctword.match(word)]
 
-def context_vectors(words, words_index, text, seed, seed_index, window_size=WINDOW_SIZE, min_freq=MIN_FREQ):
+def context_vectors(words, words_index, text, seed, seed_index, window_size=WINDOW_SIZE, min_freq=MIN_FREQ_SOURCE):
     N = len(seed)
     K = len(words)
     S = len(text)
     tf = np.zeros([N, K])
-    idf = np.zeros(K)
+    idf = np.zeros(N)
+    f = np.zeros(K)
     a, b, c = 0, window_size, 0
     while c < S:
         word = text[c]
         try:
             n = seed_index[word]
+            idf[n] += 1
             for word2 in text[a:b]:
                 if word2 == word:
                     continue
@@ -46,35 +49,32 @@ def context_vectors(words, words_index, text, seed, seed_index, window_size=WIND
                 else:
                     tf[n][k2] += 1
         except KeyError:
-            try:
-                k = words_index[word]
-            except KeyError:
-                pass
-            else:
-                idf[k] += 1
+            k = words_index[word]
+            f[k] += 1
         finally:
             a, b, c = _move_window(a, b, c, S, window_size)
     maxn = max(idf)
     to_delete = []
     for i in range(K):
-        if idf[i] < MIN_FREQ:
+        if f[i] < min_freq:
             to_delete.append(i)
-    idf = np.delete(idf, to_delete)
+    #idf = np.delete(idf, to_delete)
     tf = np.delete(tf, to_delete, 1)
     words = [w for i,w in enumerate(words) if i not in to_delete]
     #words_with_frequency = []
     #for i,w in enumerate(words):
-    #    words_with_frequency.append((idf[i],w))
+        #words_with_frequency.append((idf[i],w))
     #words_with_frequency.sort(reverse=True)
     #print(words_with_frequency)
     _map_array_in_place(lambda x: 0. if x == 0 else np.log(maxn / x) + 1, idf)
-    return words, tf * idf
-
+    return words, np.dot(np.diag(idf), tf)
+   
 def projection_matrix(english_seed, french_seed, lexicon):
     E = len(english_seed)
     F = len(french_seed)
     m = np.zeros([F, E])
     for english_word, french_words in lexicon.items():
+        v = 1. / np.sqrt(len(french_words))
         for french_word in french_words:
             m[french_seed.index(french_word)][english_seed.index(english_word)] = 1
     return m
@@ -110,17 +110,17 @@ def translate(english_text, french_text, lexicon):
     french_words_index = _build_index(french_words)
     mat = projection_matrix(english_seed, french_seed, lexicon)
     english_words, english_cv = context_vectors(english_words, english_words_index, english_text, english_seed, english_seed_index)
-    french_words, french_cv = context_vectors(french_words, french_words_index, french_text, french_seed, french_seed_index, min_freq=MIN_FREQ/10)
+    french_words, french_cv = context_vectors(french_words, french_words_index, french_text, french_seed, french_seed_index, min_freq=MIN_FREQ_DEST)
     #print(french_cv[:,french_words.index('centre')])
     #print(french_cv[:,french_words.index('afrique')])
-    #print(english_cv.shape,french_cv.shape, mat.shape,len(english_words),len(french_words))
+    print(english_cv.shape,french_cv.shape, mat.shape,len(english_words),len(french_words))
     proj_english_cv = np.dot(mat, english_cv)
     translations = {}
     for e, english_word in enumerate(english_words):
         f = find_nearest(proj_english_cv[:,e], french_cv)
         translations[english_word] = [(french_words[w[0]], w[1]) for w in f]
-    #for english_word, french_words in translations.items():
-        #print('Translation for "{0}":'.format(english_word))
-        #for fw in french_words:
-        #    print('- {0} (score: {1})'.format(*fw))
+    for english_word, french_words in translations.items():
+        print('Translation for "{0}":'.format(english_word))
+        for fw in french_words:
+            print('- {0} (score: {1})'.format(*fw))
     return translations
