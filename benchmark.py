@@ -1,9 +1,10 @@
 import numpy as np
 import heapq
+import re
 
-WINDOW_SIZE = 8
-MIN_FREQ = 5
-NB_TRANSLATIONS = 5
+WINDOW_SIZE = 5
+MIN_FREQ = 75
+NB_TRANSLATIONS = 20
 
 def _move_window(a, b, c, max_, window_size):
     if b < max_:
@@ -16,7 +17,15 @@ def _map_array_in_place(f, a):
     for i, b in enumerate(a):
         a[i] = f(b)
 
-def context_vectors(words, text, seed, window_size=WINDOW_SIZE, min_freq=MIN_FREQ):
+def _build_index(words):
+    return {word: i for i, word in enumerate(words)}
+
+def _get_text(words):
+    newwords = words.lower().split(' ')
+    correctword = re.compile('^[^0-9\s]+$')
+    return [word for word in newwords if correctword.match(word)]
+
+def context_vectors(words, words_index, text, seed, seed_index, window_size=WINDOW_SIZE, min_freq=MIN_FREQ):
     N = len(seed)
     K = len(words)
     S = len(text)
@@ -25,45 +34,41 @@ def context_vectors(words, text, seed, window_size=WINDOW_SIZE, min_freq=MIN_FRE
     a, b, c = 0, window_size, 0
     while c < S:
         word = text[c]
-        #try:
-        #    k = words.index(word)
-        #except ValueError:
-        #    pass
-        #else:
-        #    idf[k] += 1
         try:
-            n = seed.index(word)
+            n = seed_index[word]
             for word2 in text[a:b]:
                 if word2 == word:
                     continue
                 try:
-                    k2 = words.index(word2)
-                except ValueError:
+                    k2 = words_index[word2]
+                except KeyError:
                     continue
                 else:
                     tf[n][k2] += 1
-        except ValueError:
+        except KeyError:
             try:
-                k = words.index(word)
-            except ValueError:
+                k = words_index[word]
+            except KeyError:
                 pass
             else:
                 idf[k] += 1
         finally:
             a, b, c = _move_window(a, b, c, S, window_size)
     maxn = max(idf)
-    i = 0
-    deletions = 0
-    while i + deletions < K:
+    to_delete = []
+    for i in range(K):
         if idf[i] < MIN_FREQ:
-            idf = np.delete(idf, i)
-            tf = np.delete(tf, i, 1)
-            del words[i]
-            deletions += 1
-        else:
-            i += 1
+            to_delete.append(i)
+    idf = np.delete(idf, to_delete)
+    tf = np.delete(tf, to_delete, 1)
+    words = [w for i,w in enumerate(words) if i not in to_delete]
+    #words_with_frequency = []
+    #for i,w in enumerate(words):
+    #    words_with_frequency.append((idf[i],w))
+    #words_with_frequency.sort(reverse=True)
+    #print(words_with_frequency)
     _map_array_in_place(lambda x: 0. if x == 0 else np.log(maxn / x) + 1, idf)
-    return tf * idf
+    return words, tf * idf
 
 def projection_matrix(english_seed, french_seed, lexicon):
     E = len(english_seed)
@@ -95,18 +100,27 @@ def find_nearest(vec, mat, nb_translations=NB_TRANSLATIONS):
 def translate(english_text, french_text, lexicon):
     english_seed = list(set(lexicon.keys()))
     french_seed = list(set([e for v in lexicon.values() for e in v]))
-    english_text = english_text.split(' ')
-    french_text = french_text.split(' ')
+    english_seed_index = _build_index(english_seed)
+    french_seed_index = _build_index(french_seed)
+    english_text = _get_text(english_text)
+    french_text = _get_text(french_text)
     english_words = list(set(english_text))
     french_words = list(set(french_text))
+    english_words_index = _build_index(english_words)
+    french_words_index = _build_index(french_words)
     mat = projection_matrix(english_seed, french_seed, lexicon)
-    english_cv = context_vectors(english_words, english_text, english_seed)
-    french_cv = context_vectors(french_words, french_text, french_seed)
-    print(english_cv.shape,french_cv.shape, mat.shape,len(english_words),len(french_words))
+    english_words, english_cv = context_vectors(english_words, english_words_index, english_text, english_seed, english_seed_index)
+    french_words, french_cv = context_vectors(french_words, french_words_index, french_text, french_seed, french_seed_index, min_freq=MIN_FREQ/10)
+    #print(french_cv[:,french_words.index('centre')])
+    #print(french_cv[:,french_words.index('afrique')])
+    #print(english_cv.shape,french_cv.shape, mat.shape,len(english_words),len(french_words))
     proj_english_cv = np.dot(mat, english_cv)
     translations = {}
     for e, english_word in enumerate(english_words):
         f = find_nearest(proj_english_cv[:,e], french_cv)
         translations[english_word] = [(french_words[w[0]], w[1]) for w in f]
-    print(translations)
+    #for english_word, french_words in translations.items():
+        #print('Translation for "{0}":'.format(english_word))
+        #for fw in french_words:
+        #    print('- {0} (score: {1})'.format(*fw))
     return translations

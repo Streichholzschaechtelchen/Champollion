@@ -87,7 +87,7 @@ def graph_of_words(args, text):
                         edges[(word, neighbor)] = val
     return edges
 
-def words(args, print_=True, case=False):
+def words(args, print_=True):
 
     if not args.a:
         print('no article title given')
@@ -105,6 +105,10 @@ def words(args, print_=True, case=False):
 
     index_file = join(index, prefix + '.xml')
 
+    if not exists(index_file):
+        print('Article {0} not found.'.format(args.a))
+        return None
+        
     with open(index_file, 'r') as i:
         tree = BeautifulSoup(i, "lxml")
         for doc in tree.find_all('doc'):
@@ -113,13 +117,13 @@ def words(args, print_=True, case=False):
                     tree2 = BeautifulSoup(i2, "lxml")
                     for doc in tree2.find_all('doc'):
                         if doc['title'] == args.a:
-                            if not case:
-                                doc.string = doc.string.lower()
                             if print_:
                                 print(doc.string)
+                                print('({0} words)'.format(doc.string.count(' ') + 1))
                             return doc.string
                
     print('Article {0} not found.'.format(args.a))
+    return None
 
 def grep(args):
 
@@ -287,16 +291,59 @@ def delete(args):
         rmtree(args.wiki)
     else:
         print('folder {0} does not exist'.format(args.wiki))
+        
+def benchmark(args, f=words):
 
-def benchmark(args):
-
-    english_text = words(args, print_=False)
+    english_text = f(args, print_=False)
     args.wiki = args.wiki2
     args.a = args.a2
-    french_text = words(args, print_=False)
+    args.al = args.al2
+    french_text = f(args, print_=False)
     with open(args.l, 'r') as f:
         lexicon = json.load(f)
     return bm.translate(english_text, french_text, lexicon)
+
+def multiwords(args, print_=True):
+
+    if args.a:
+        articles = args.a.split(';')
+    elif args.al:
+        with open(args.al, 'r') as f:
+            articles = json.load(f)
+    texts = []
+    lengths = {}
+    missing = []
+    for article in articles:
+        args.a = article
+        text = words(args, print_=False)
+        if text:
+            texts.append(text)
+            lengths[article] = text.count(' ')
+            if print_:
+                print('Found {0}.'.format(article))
+        else:
+            missing.append(article)
+            if print_:
+                print('Could not find {0}.'.format(article))
+    multiwords = ' '.join(texts)
+    hline = '{:-^25}'.format('')
+    pattern = '|{0: >6}|{1: >16}|'
+    if print_:
+        print('\nSummary of corpus:')
+        print(hline)
+        print(pattern.format('#words', 'Title'))
+        print(hline)
+        for k, v in lengths.items():
+            print(pattern.format(v, k[:16]))
+        print(hline)
+        for article in missing:
+            print(pattern.format('?', article[:16]))
+        print(hline)
+        print(pattern.format(sum(lengths.values()), '{0} articles'.format(len(lengths))))
+        print(hline)
+        print('\n')
+    return multiwords
+        
     
 #Integrate lexicon extraction to champollion.py
 
@@ -316,7 +363,11 @@ if __name__ == "__main__":
     parser.add_argument('-m', action='store', type=int, help='count threshold')
     parser.add_argument('-f', action='store', type=float, help='a factor')
     parser.add_argument('-l', action='store', type=str, help='a lexicon file')
+    parser.add_argument('-al', action='store', type=str, help='a list of articles')
+    parser.add_argument('-al2', action='store', type=str, help='another list of articles')
+    parser.add_argument('-o', action='store', type=str, help='an output file')
     args = parser.parse_args()
+    o = None
     if args.command == 'download':
         if download(args):
             create_index(args)
@@ -329,10 +380,18 @@ if __name__ == "__main__":
     elif args.command == 'grep':
         grep(args)
     elif args.command == 'words':
-        words(args)
+        o = words(args)
+    elif args.command == 'multiwords':
+        o = multiwords(args)
     elif args.command == 'draw':
         draw(graph_of_words(args, words(args, print_=False)))
     elif args.command == 'benchmark':
         benchmark(args)
+    elif args.command == 'multibenchmark':
+        benchmark(args, f=multiwords)
     else:
         print('unknown command {0}'.format(args.command))
+    if o and args.o:
+        with open(args.o, 'w') as f:
+            f.write(o)
+        print('Wrote output in file {0}.'.format(args.o))
