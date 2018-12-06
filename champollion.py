@@ -15,6 +15,7 @@ import pylab
 from wikiextractor.WikiExtractor import process_dump
 
 import benchmark as bm
+import evaluate as ev
 
 WORD_REGEXP = r'\w+'
 INDEX_FORMAT = '{0}/index'
@@ -45,8 +46,8 @@ def draw(graph_of_words):
 def graph_of_words(args, text):
     
     if not text:
-        print('connot compute graph of words')
-        return
+         print('connot compute graph of words')
+         return
 
     window = args.w or 5
     min_freq = args.m or 5
@@ -301,7 +302,11 @@ def benchmark(args, f=words):
     french_text = f(args, print_=False)
     with open(args.l, 'r') as f:
         lexicon = json.load(f)
-    return bm.translate(english_text, french_text, lexicon)
+    translations = bm.translate(english_text, french_text, lexicon)
+    if args.o:
+        with open(args.o, 'w') as f:
+            json.dump(translations, f, ensure_ascii=False)
+    return translations
 
 def multiwords(args, print_=True):
 
@@ -389,9 +394,12 @@ if __name__ == "__main__":
         benchmark(args)
     elif args.command == 'multibenchmark':
         benchmark(args, f=multiwords)
+    elif args.command == 'evaluate':
+        ev.evaluate_translations(args.o)
     else:
         print('unknown command {0}'.format(args.command))
     if o and args.o:
         with open(args.o, 'w') as f:
             f.write(o)
         print('Wrote output in file {0}.'.format(args.o))
+ 

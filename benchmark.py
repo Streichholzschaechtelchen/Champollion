@@ -113,7 +113,7 @@ def translate(english_text, french_text, lexicon):
     french_words, french_cv = context_vectors(french_words, french_words_index, french_text, french_seed, french_seed_index, min_freq=MIN_FREQ_DEST)
     #print(french_cv[:,french_words.index('centre')])
     #print(french_cv[:,french_words.index('afrique')])
-    print(english_cv.shape,french_cv.shape, mat.shape,len(english_words),len(french_words))
+    #print(english_cv.shape,french_cv.shape, mat.shape,len(english_words),len(french_words))
     proj_english_cv = np.dot(mat, english_cv)
     translations = {}
     for e, english_word in enumerate(english_words):
