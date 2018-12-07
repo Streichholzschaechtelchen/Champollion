@@ -16,6 +16,7 @@ from wikiextractor.WikiExtractor import process_dump
 
 import benchmark as bm
 import evaluate as ev
+import optimizer as oz
 
 WORD_REGEXP = r'\w+'
 INDEX_FORMAT = '{0}/index'
@@ -292,14 +293,25 @@ def delete(args):
         rmtree(args.wiki)
     else:
         print('folder {0} does not exist'.format(args.wiki))
-        
-def benchmark(args, f=words):
+
+def two_texts(args):
 
     english_text = f(args, print_=False)
+    wiki = args.wiki
+    a = args.a
+    al = args.al
     args.wiki = args.wiki2
     args.a = args.a2
     args.al = args.al2
     french_text = f(args, print_=False)
+    args.wiki = wiki
+    args.a = a
+    args.al = al
+    return english_text, french_text
+        
+def benchmark(args, f=words):
+
+    english_text, french_text = two_texts(args)
     with open(args.l, 'r') as f:
         lexicon = json.load(f)
     translations = bm.translate(english_text, french_text, lexicon)
@@ -307,6 +319,15 @@ def benchmark(args, f=words):
         with open(args.o, 'w') as f:
             json.dump(translations, f, ensure_ascii=False)
     return translations
+
+def optimizer(args, f=words):
+
+    english_text, french_text = two_texts(args)
+    with open(args.l, 'r') as f:
+        lexicon = json.load(f)
+    translations = oz.translate(english_text, french_text, lexicon)
+    #todo
+    pass
 
 def multiwords(args, print_=True):
 
@@ -344,11 +365,11 @@ def multiwords(args, print_=True):
         for article in missing:
             print(pattern.format('?', article[:16]))
         print(hline)
-        print(pattern.format(sum(lengths.values()), '{0} articles'.format(len(lengths))))
+        print(pattern.format(sum(lengths.values()),
+                             '{0} articles'.format(len(lengths))))
         print(hline)
         print('\n')
     return multiwords
-        
     
 #Integrate lexicon extraction to champollion.py
 
@@ -396,6 +417,10 @@ if __name__ == "__main__":
         benchmark(args, f=multiwords)
     elif args.command == 'evaluate':
         ev.evaluate_translations(args.o)
+    elif args.command == 'optimizer':
+        optimizer(args)
+    elif args.command == 'multioptimizer':
+        optimizer(args, f=multiwords)
     else:
         print('unknown command {0}'.format(args.command))
     if o and args.o:

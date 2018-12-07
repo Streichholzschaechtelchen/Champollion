@@ -2,29 +2,12 @@ import numpy as np
 import heapq
 import re
 
+from tools import *
+
 WINDOW_SIZE = 5
 MIN_FREQ_SOURCE = 75
 MIN_FREQ_DEST = 25
 NB_TRANSLATIONS = 5
-
-def _move_window(a, b, c, max_, window_size):
-    if b < max_:
-        b += 1
-    if c - a >= window_size:
-        a += 1
-    return a, b, c + 1
-
-def _map_array_in_place(f, a):
-    for i, b in enumerate(a):
-        a[i] = f(b)
-
-def _build_index(words):
-    return {word: i for i, word in enumerate(words)}
-
-def _get_text(words):
-    newwords = words.lower().split(' ')
-    correctword = re.compile('^[^0-9\s]+$')
-    return [word for word in newwords if correctword.match(word)]
 
 def context_vectors(words, words_index, text, seed, seed_index, window_size=WINDOW_SIZE, min_freq=MIN_FREQ_SOURCE):
     N = len(seed)
@@ -58,14 +41,8 @@ def context_vectors(words, words_index, text, seed, seed_index, window_size=WIND
     for i in range(K):
         if f[i] < min_freq:
             to_delete.append(i)
-    #idf = np.delete(idf, to_delete)
     tf = np.delete(tf, to_delete, 1)
     words = [w for i,w in enumerate(words) if i not in to_delete]
-    #words_with_frequency = []
-    #for i,w in enumerate(words):
-        #words_with_frequency.append((idf[i],w))
-    #words_with_frequency.sort(reverse=True)
-    #print(words_with_frequency)
     _map_array_in_place(lambda x: 0. if x == 0 else np.log(maxn / x) + 1, idf)
     return words, np.dot(np.diag(idf), tf)
    
@@ -111,9 +88,6 @@ def translate(english_text, french_text, lexicon):
     mat = projection_matrix(english_seed, french_seed, lexicon)
     english_words, english_cv = context_vectors(english_words, english_words_index, english_text, english_seed, english_seed_index)
     french_words, french_cv = context_vectors(french_words, french_words_index, french_text, french_seed, french_seed_index, min_freq=MIN_FREQ_DEST)
-    #print(french_cv[:,french_words.index('centre')])
-    #print(french_cv[:,french_words.index('afrique')])
-    #print(english_cv.shape,french_cv.shape, mat.shape,len(english_words),len(french_words))
     proj_english_cv = np.dot(mat, english_cv)
     translations = {}
     for e, english_word in enumerate(english_words):
