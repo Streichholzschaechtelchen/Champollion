@@ -294,7 +294,7 @@ def delete(args):
     else:
         print('folder {0} does not exist'.format(args.wiki))
 
-def two_texts(args):
+def two_texts(f, args):
 
     english_text = f(args, print_=False)
     wiki = args.wiki
@@ -311,7 +311,7 @@ def two_texts(args):
         
 def benchmark(args, f=words):
 
-    english_text, french_text = two_texts(args)
+    english_text, french_text = two_texts(f, args)
     with open(args.l, 'r') as f:
         lexicon = json.load(f)
     translations = bm.translate(english_text, french_text, lexicon)
@@ -322,12 +322,14 @@ def benchmark(args, f=words):
 
 def optimizer(args, f=words):
 
-    english_text, french_text = two_texts(args)
+    english_text, french_text = two_texts(f, args)
     with open(args.l, 'r') as f:
         lexicon = json.load(f)
     translations = oz.translate(english_text, french_text, lexicon)
-    #todo
-    pass
+    if args.o:
+        with open(args.o, 'w') as f:
+            json.dump(translations, f, ensure_ascii=False)
+    return translations
 
 def multiwords(args, print_=True):
 

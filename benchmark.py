@@ -2,14 +2,15 @@ import numpy as np
 import heapq
 import re
 
-from tools import *
-
 WINDOW_SIZE = 5
 MIN_FREQ_SOURCE = 75
 MIN_FREQ_DEST = 25
 NB_TRANSLATIONS = 5
 
 def context_vectors(words, words_index, text, seed, seed_index, window_size=WINDOW_SIZE, min_freq=MIN_FREQ_SOURCE):
+
+    from tools import _move_window, _map_array_in_place
+    
     N = len(seed)
     K = len(words)
     S = len(text)
@@ -75,6 +76,9 @@ def find_nearest(vec, mat, nb_translations=NB_TRANSLATIONS):
     return l
 
 def translate(english_text, french_text, lexicon):
+
+    from tools import _build_index, _get_text
+    
     english_seed = list(set(lexicon.keys()))
     french_seed = list(set([e for v in lexicon.values() for e in v]))
     english_seed_index = _build_index(english_seed)
