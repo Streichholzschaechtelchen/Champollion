@@ -6,13 +6,13 @@ from numpy.random import random_sample
 WINDOW_SIZE = 5
 #MIN_FREQ_SOURCE = 75
 #MIN_FREQ_DEST = 25
-MIN_FREQ_SOURCE = 5
-MIN_FREQ_DEST = 5
-NB_TRANSLATIONS = 5
+MIN_FREQ_SOURCE = 75
+MIN_FREQ_DEST = 50
+NB_TRANSLATIONS = 20
 
 #Ce n'est pas une très bonne solution
-EPSILON = 0.01
-PENALTY = 2
+EPSILON = 0.0001
+PENALTY = 100
 
 def context_vectors(words, words_index, text, window_size=WINDOW_SIZE, min_freq=MIN_FREQ_SOURCE):
 
@@ -39,8 +39,6 @@ def context_vectors(words, words_index, text, window_size=WINDOW_SIZE, min_freq=
             i += 1
 
     tf = np.zeros([K, K])
-
-    print(K)
     
     a, b, c = 0, window_size, 0
     while c < S:
@@ -87,29 +85,26 @@ def vec_to_mat(func, english_cv, french_cv, output_vector=True):
     def wrapper(v):
         p = _p(v, english_size, french_size)
         pt = np.transpose(p)
+        a = np.ones([french_size, french_size])
         if output_vector:
-            return _q(func(p, pt, english_cv, french_cv),
+            return _q(func(p, pt, a, english_cv, french_cv),
                       english_size, french_size)
         else:
-            return func(p, pt, english_cv, french_cv)
+            return func(p, pt, a, english_cv, french_cv)
     return wrapper
 
-def f(p, pt, english_cv, french_cv):
-    return np.linalg.norm(english_cv - np.matmul(p, np.matmul(french_cv, pt))) ** 2
+def f(p, pt, a, english_cv, french_cv):
+    pdpt = np.matmul(p, np.matmul(french_cv, pt))
+    papt = np.matmul(p, np.matmul(a, pt))
+    return np.linalg.norm(english_cv - pdpt / papt) ** 2
 
-def g(p, pt, english_cv, french_cv):
-    return 4 * np.matmul(np.matmul(p, np.matmul(french_cv, pt)) - english_cv, np.matmul(p, french_cv))
-
-def Ev(i, j, english_size, french_size):
-    m = np.zeros(english_size * french_size)
-    m[i * french_size + j] = 1
-    return m
-
-def Rv(i, english_size, french_size):
-    m = np.zeros(english_size * french_size)
-    for k in range(french_size):
-        m[i * french_size + k] = 1
-    return m
+def g(p, pt, a, english_cv, french_cv):
+    pdpt = np.matmul(p, np.matmul(french_cv, pt))
+    papt = np.matmul(p, np.matmul(a, pt))
+    vp = (pdpt / papt - english_cv) / papt
+    m1 = np.matmul(vp, np.matmul(p, french_cv))
+    m2 = np.matmul(vp * pdpt / papt, np.matmul(p, a))
+    return 4 * (m1 - m2)
 
 def translate(english_text, french_text, lexicon):
     
@@ -133,12 +128,17 @@ def translate(english_text, french_text, lexicon):
     english_size = len(english_words)
     french_size = len(french_words)
 
+    print(english_size, french_size)
+
     #Prepare optimization
     #Initial guess    
     x0 = np.zeros([english_size * french_size])
-    #Empty constraint set
-    constraints = []
+    #Lower and upper bounds
+    lower = np.full([english_size * french_size], EPSILON)
+    upper = np.full([english_size * french_size], 1)
 
+    print('Initialize...')
+    
     #Update x0 and add constraints corresponding to seed lexicon
     for english_word in english_words:
         if english_word in english_seed:
@@ -146,49 +146,20 @@ def translate(english_text, french_text, lexicon):
                                    if w in french_words]
             english_index = english_words_index[english_word]
             if french_translations:
-                c = 1 / len(french_translations)
                 for french_translation in french_translations:
-                    print(english_word, french_translation)
                     french_index = french_words_index[french_translation]
-                    fun = lambda x, ei=english_index, \
-                          fs=french_size, fi=french_index, c=c: \
-                              x[ei * fs + fi] - c
-                    jac = lambda x, ei=english_index, es=english_size, \
-                          fi=french_index, fs=french_size: \
-                              Ev(ei, fi, es, fs)
-                    constraints.append({'type': 'eq',
-                                        'fun': fun,
-                                        'jac': jac})
-                x0[english_index * french_size + french_index] = c
-
-    #Add constraints making x a stochastic matrix
-    fun = lambda x, fs=french_size: \
-          np.array([sum([x[i * fs + j] for j in range(fs)]) - 1 + EPSILON
-                    for i in range(english_size)])
-    jac = lambda x, fs=french_size, es=english_size: \
-          np.array([Rv(i, es, fs) for i in range(es)])
-    constraints.append({'type': 'ineq',
-                        'fun': fun,
-                        'jac': jac})
-    fun2 = lambda x, fs=french_size: \
-           np.array([1 + EPSILON - sum([x[i * fs + j] for j in range(fs)])
-                     for i in range(english_size)])
-    jac2 = lambda x, fs=french_size, es=english_size: \
-           np.array([-Rv(i, es, fs) for i in range(es)])
-    constraints.append({'type': 'ineq',
-                        'fun': fun2,
-                        'jac': jac2})
-
-    print(len(constraints))
+                    i = english_index * french_size + french_index
+                    lower[i] = upper[i] = x0[i] = 1
+                for j in range(french_size):
+                    if french_words[j] not in french_seed:
+                        i = english_index * french_size + j
+                        lower[i] = upper[i] = x0[i] = 0
 
     #Update x0 to make it a stochastic matrix
-    c = 1 / french_size
     for i in range(english_size):
         #Random guess for whatever word not in seed
         if english_words[i] not in english_seed:
-            x0[i * french_size:(i+1) * french_size] = c
-        
-    #Comment traiter les coefficients "infinis" (qui pour l'instant valent 0...)
+            x0[i * french_size:(i+1) * french_size] = 1
 
     #Print p
     #print(english_cv)
@@ -209,14 +180,15 @@ def translate(english_text, french_text, lexicon):
         #print('grad(x)=')
         #print(vec_to_mat(g,english_cv,french_cv)(xk))
     #callback(x0)
+
+    print('Optimize...')
     
     #Call optimization module
     argmin = minimize(vec_to_mat(f, english_cv, french_cv, False),
                       x0,
-                      options={'maxiter': 100, 'disp':True},
-                      method='SLSQP',
-                      constraints=constraints,
-                      bounds=Bounds(0, 1),
+                      options={'maxiter': 400, 'disp':True},
+                      method='L-BFGS-B',
+                      bounds=Bounds(lower, upper, keep_feasible=True),
                       jac=vec_to_mat(g, english_cv, french_cv),
                       callback=callback
                      ).x
