@@ -11,6 +11,8 @@ import sys
 from heapq import heapify, heappushpop
 import networkx as nx
 import pylab
+import numpy as np
+import matplotlib.pyplot as plt
 
 from wikiextractor.WikiExtractor import process_dump
 
@@ -36,58 +38,113 @@ def get_prefix(s):
 
 def draw(graph_of_words):
 
-    graph = nx.Graph()
-    for edge in graph_of_words:
-        graph.add_edges_from({edge})
-    pos = nx.spring_layout(graph)
-    nx.draw_networkx_edge_labels(graph, pos, edge_labels=graph_of_words)
-    nx.draw(graph, pos, with_labels=True)
-    pylab.show()
+    #graph = nx.Graph()
+    #for edge in graph_of_words:
+    #    graph.add_edges_from({edge})
+    #pos = nx.spring_layout(graph)
+    #nx.draw_networkx_edge_labels(graph, pos, edge_labels=graph_of_words)
+    #nx.draw(graph, pos, with_labels=True)
+    #pylab.show()
+    pass
+
+def hist(graph_of_words):
+    
+    words, graph_of_words = graph_of_words
+    
+    #Histogram of values in adjacency matrix
+    fig1 = plt.figure(1)
+    x, y = graph_of_words.shape
+    plt.yscale('log', nonposy='clip')
+    n, bins, patches = plt.hist(graph_of_words.reshape([x * y]), bins=25)
+    fig1.show()
+    
+    #Histogram of number of neighbors of each word
+    fig2 = plt.figure(2)
+    neighbors = np.zeros([x])
+    for i in range(x):
+        for j in range(y):
+            if i != j and graph_of_words[i][j] > 0:
+                neighbors[j] += 1
+    n2, bins2, patches2 = plt.hist(neighbors, bins=range(int(np.ceil(max(neighbors)))))
+    print('Number of vertices: {0}'.format(x))
+    print('Number of non-isolated vertices: {0}'.format(np.count_nonzero(neighbors)))
+    print('Average number of neighbors: {0}'.format(np.average(neighbors)))
+    fig2.show()
+
+    while True:
+        my_neighbors = []
+        word = input('Print neighbors of word ')
+        if word in words:
+            index = words.index(word)
+            for j in range(y):
+                if graph_of_words[j][index] > 0:
+                    my_neighbors.append((graph_of_words[j][index], words[j]))
+            my_neighbors.sort(reverse=True)
+            for e in my_neighbors:
+                print('-{1}: {0}'.format(*e))
+        else:
+            print('Word {0} cannot be found in the text'.format(word))
 
 def graph_of_words(args, text):
+
+    from tools import _build_index, _get_text, _move_window, _map_array_in_place
     
     if not text:
          print('connot compute graph of words')
          return
 
     window = args.w or 5
-    min_freq = args.m or 5
-    f = args.f or 10000
-    
-    words = text.lower().split(' ')
-    words_freq = {}
-    co_words_freq = {}
-    l = len(words)
-    neighbors = words[1:window+1]
-    for i,word in enumerate(words):
-        if word in words_freq:
-            words_freq[word] += 1
+    min_freq = args.m or 25
+    f = args.f or 1
+
+    text = _get_text(text)
+    words = list(set(text))
+    index = _build_index(words)
+
+    K = len(words)
+    idf = [0] * K
+    for c, word in enumerate(text):
+        k = index[word]
+        idf[k] += 1
+
+    i = 0
+    while i < K:
+        word = words[i]
+        if idf[i] < min_freq:
+            del words[i]
+            del idf[i]
+            del index[word]
+            K -= 1
         else:
-            words_freq[word] = 1
-            co_words_freq[word] = {}
-        for neighbor in neighbors:
-            if neighbor in co_words_freq:
-                if word in co_words_freq[neighbor]:
-                    co_words_freq[neighbor][word] += 1
-                else:
-                    co_words_freq[neighbor][word] = 1
-            else:
-                if neighbor in co_words_freq[word]:
-                    co_words_freq[word][neighbor] += 1
-                else:
-                    co_words_freq[word][neighbor] = 1
-        neighbors = neighbors[1:]
-        if i + 1 < l - window:
-            neighbors.append(words[i + window + 1])
-    edges = {}
-    for word in co_words_freq:
-        for neighbor in co_words_freq[word]:
-            if word != neighbor:
-                if words_freq[word] >= min_freq and words_freq[neighbor] >= min_freq:
-                    val = co_words_freq[word][neighbor] ** 2 / (words_freq[word] * words_freq[neighbor])
-                    if val >= f * words_freq[word] * words_freq[neighbor] / l ** 2:
-                        edges[(word, neighbor)] = val
-    return edges
+            index[word] = i
+            i += 1
+
+    S = len(text)
+    tf = np.zeros([K, K])
+    idf = np.array(idf, dtype=np.float)
+    a, b, c = 0, window, 0
+    while c < S:
+        word = text[c]
+        if word in index:
+            n = index[word]
+            idf[n] += 1
+            for word2 in text[a:b]:
+                if word2 == word or word2 not in index:
+                    continue
+                k = index[word2]
+                tf[n][k] += 1
+        a, b, c = _move_window(a, b, c, S, window)
+
+    for i in range(K):
+        for j in range(K):
+            if tf[i][j] < f * idf[i] * idf[j] * window / S:
+                tf[i][j] = 0
+            
+    maxn = max(idf)
+    to_delete = []
+    _map_array_in_place(lambda x: 0. if x == 0 else np.log(maxn / x) + 1, idf)
+    
+    return words, np.dot(np.diag(idf), tf)
 
 def words(args, print_=True):
 
@@ -413,6 +470,10 @@ if __name__ == "__main__":
         o = multiwords(args)
     elif args.command == 'draw':
         draw(graph_of_words(args, words(args, print_=False)))
+    elif args.command == 'hist':
+        hist(graph_of_words(args, words(args, print_=False)))
+    elif args.command == 'multihist':
+        hist(graph_of_words(args, multiwords(args, print_=False)))
     elif args.command == 'benchmark':
         benchmark(args)
     elif args.command == 'multibenchmark':
