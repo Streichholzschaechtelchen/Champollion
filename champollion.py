@@ -19,6 +19,7 @@ from wikiextractor.WikiExtractor import process_dump
 import benchmark as bm
 import evaluate as ev
 import optimizer as oz
+import greedy as gy
 
 WORD_REGEXP = r'\w+'
 INDEX_FORMAT = '{0}/index'
@@ -388,6 +389,17 @@ def optimizer(args, f=words):
             json.dump(translations, f, ensure_ascii=False)
     return translations
 
+def greedy(args, f=words):
+
+    english_text, french_text = two_texts(f, args)
+    with open(args.l, 'r') as f:
+        lexicon = json.load(f)
+    translations = gy.translate(english_text, french_text, lexicon)
+    if args.o:
+        with open(args.o, 'w') as f:
+            json.dump(translations, f, ensure_ascii=False)
+    return translations
+
 def multiwords(args, print_=True):
 
     if args.a:
@@ -484,6 +496,10 @@ if __name__ == "__main__":
         optimizer(args)
     elif args.command == 'multioptimizer':
         optimizer(args, f=multiwords)
+    elif args.command == 'greedy':
+        greedy(args)
+    elif args.command == 'multigreedy':
+        greedy(args, f=multiwords)
     else:
         print('unknown command {0}'.format(args.command))
     if o and args.o:

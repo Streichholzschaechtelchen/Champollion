@@ -9,7 +9,10 @@ def evaluate_translations(translations_file):
         print('{0}/{1} Which of the following means {2}?' \
               .format(i, l, french_word))
         for j, english_word_ in enumerate(english_words):
-            english_word, _ = english_word_
+            if type(english_word_) in [tuple, list, dict]:
+                english_word, _ = english_word_
+            else:
+                english_word = english_word_
             print('- [{0}] {1}'.format(j + 1, english_word))
         i += 1
         m = len(english_words)
