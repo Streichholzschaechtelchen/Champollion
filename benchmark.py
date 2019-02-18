@@ -18,7 +18,7 @@ def context_vectors(words, words_index, text, seed, seed_index, window_size=WIND
     idf = np.zeros(N)
     f = np.zeros(K)
     a, b, c = 0, window_size, 0
-    while cdds < S:
+    while c < S:
         word = text[c]
         try:
             n = seed_index[word]

@@ -1,0 +1,6 @@
+#!/bin/bash
+for v in 1 2 5 7 10 15 20 25 50 100
+do
+echo greedy$v.json
+python3 champollion.py multigreedy en fr -al list-english.json -al2 liste-francais.json -l lexicon.json -b -o tests/greedy$v.json -f $v
+done

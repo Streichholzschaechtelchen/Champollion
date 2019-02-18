@@ -20,6 +20,7 @@ import benchmark as bm
 import evaluate as ev
 import optimizer as oz
 import greedy as gy
+import greedy2 as gy2
 
 WORD_REGEXP = r'\w+'
 INDEX_FORMAT = '{0}/index'
@@ -389,12 +390,16 @@ def optimizer(args, f=words):
             json.dump(translations, f, ensure_ascii=False)
     return translations
 
-def greedy(args, f=words):
+def greedy(args, f=words, m=gy):
 
     english_text, french_text = two_texts(f, args)
     with open(args.l, 'r') as f:
         lexicon = json.load(f)
-    translations = gy.translate(english_text, french_text, lexicon)
+    if args.f:
+        f = args.f
+    else:
+        f = None
+    translations = m.translate(english_text, french_text, lexicon, f)
     if args.o:
         with open(args.o, 'w') as f:
             json.dump(translations, f, ensure_ascii=False)
@@ -500,6 +505,10 @@ if __name__ == "__main__":
         greedy(args)
     elif args.command == 'multigreedy':
         greedy(args, f=multiwords)
+    elif args.command == 'greedy2':
+        greedy(args, m=gy2)
+    elif args.command == 'multigreedy2':
+        greedy(args, f=multiwords, m=gy2)
     else:
         print('unknown command {0}'.format(args.command))
     if o and args.o:

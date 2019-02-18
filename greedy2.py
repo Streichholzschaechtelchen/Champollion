@@ -1,5 +1,7 @@
 import numpy as np
 from math import sqrt
+#from scipy.optimize import minimize, Bounds
+from scipy.sparse import lil_matrix
 from numpy.random import random_sample
 from numpy.linalg import norm
 
@@ -38,7 +40,6 @@ def context_vectors(words, words_index, text, f, window_size=WINDOW_SIZE, min_fr
             i += 1
 
     #Create co-occurence matrix
-    #One column is added to allow for the "-1" trick
     tf = np.zeros([K, K])
 
     #Compute co-occurence matrix
@@ -67,9 +68,9 @@ def context_vectors(words, words_index, text, f, window_size=WINDOW_SIZE, min_fr
     maxn = max(idf)
     _map_array_in_place(lambda x: 0. if x == 0 else np.log(maxn / x) + 1, idf)
     tf = np.dot(np.diag(idf), tf)
-    tfidf = np.zeros([K+1,K+1])
-    tfidf[:K,:K] = tf
-    return words, words_index, tfidf
+    #tfidf = np.zeros([K+1,K+1])
+    #tfidf[:K,:K] = tf
+    return words, words_index, tf
 
 def min_argmin_admissible(mat, n, R):
     
@@ -83,40 +84,20 @@ def min_argmin_admissible(mat, n, R):
                 argmini, argminj = i, j
     return argmini, argminj, min_
 
-def initialize(delta, P, english_cv, french_cv, english_size, french_size, english_neighs, english_co_neighs):
+def initialize(delta, P, english_cv, french_cv, english_size, french_size, lexicon_indices):
 
-    #Initialize E
-    #for i in range(english_size):
-    #    for j in range(english_size):
-    #        E[i,j] = english_cv[i,j] - french_cv[P[i],P[j]]
-
-    #Compute P without -1s
-    Pp = {}
-    for i in range(english_size):
-        if P[i] != -1:
-            Pp[i] = P[i]
-
-    print(len(Pp))
+    s=len(lexicon_indices)
+    print(s)
+    t=0
+    Attila = np.ones([english_size, french_size])
+    PD = P.dot(french_cv)
+    PDt = P.dot(french_cv.transpose())
+    M1 = np.diag(np.diag(PD.transpose().dot(PD)))
+    M2 = np.diag(np.diag(PDt.transpose().dot(PDt)))
     
-    #Initialize delta
-    for beta in range(french_size):
-        v = sum(french_cv[beta,Pp[j]] ** 2 + french_cv[Pp[j],beta] ** 2 for j in Pp)
-        for alpha in range(english_size):
-            delta[alpha,beta] += v
-
-    for alpha in range(english_size):
-        V = english_neighs[alpha]
-        coV = english_co_neighs[alpha]
-        for beta in range(french_size):
-            for j in V:
-                if j in Pp:
-                    delta[alpha,beta] -= 2 * english_cv[alpha,j] * french_cv[beta,Pp[j]]
-            for j in coV:
-                if j in Pp:
-                    delta[alpha,beta] -= 2 * english_cv[j,alpha] * french_cv[Pp[j],beta]
-
-    return len(Pp)
-
+    delta[:,:] = 2 * PD * PDt + np.dot(Attila, M1) + np.dot(Attila, M2) \
+                 - 2 * np.dot(english_cv.transpose(), PD) - 2 * np.dot(english_cv, PDt)
+    
 def neighbors(M, n):
 
     neighs = [[] for _ in range(n)]
@@ -128,21 +109,28 @@ def neighbors(M, n):
                 co_neighs[j].append(i)
     return neighs, co_neighs
 
-def update(delta, R, english_cv, french_cv, english_neighs, english_co_neighs, french_neighs, french_co_neighs, w, wp, english_words, french_words):
+def set_(delta, P, w, french_size):
 
-    fV = french_neighs[wp]
-    fcoV = french_co_neighs[wp]
-    eV = english_neighs[w]
-    ecoV = english_co_neighs[w]
-    for b in fcoV:
-        for a in ecoV:
-            if a in R:
-                delta[a,b] += (french_cv[b,wp] - 2 * english_cv[a,w]) * french_cv[b,wp]
-    for b in fV:
-        for a in eV: 
-            if a in R:
-                 delta[a,b] += (french_cv[wp,b] - 2 * english_cv[w,a]) * french_cv[wp,b]
+    best = []
+    for j in range(french_size):
+        if delta[w, j] < 0:
+            best.append((delta[w, j], j))
+    best = sorted(best)[:NB_TRANSLATIONS]
+    T = sum(map(lambda x:x[0], best))
+    for b in best:
+        P[w,b[1]] = b[0] / T
     
+def update(delta, R, english_cv, french_cv, french_size, english_size, w, P):
+
+    PD = P.dot(french_cv)
+    PDt = P.dot(french_cv.transpose())
+    PDw = np.repeat([PD[w,:]], english_size, axis=0)
+    PDtw = np.repeat([PDt[w,:]], english_size, axis=0)
+    Ew = np.repeat(np.vstack(english_cv[w,:]), french_size, axis=1)
+    Etw = np.repeat(np.vstack(english_cv[:,w]), french_size, axis=1)
+    
+    delta[:,:] += PDtw ** 2 + PDw ** 2 - 2 * Etw * PDtw - 2 * Ew * PDw
+       
 def translate(english_text, french_text, lexicon, f):
 
     f = f or F
@@ -172,52 +160,62 @@ def translate(english_text, french_text, lexicon, f):
     #Create tables
     #E = np.zeros([english_size, english_size])
     delta = np.zeros([english_size, french_size])
-    P = [-1] * english_size
+    P = lil_matrix((english_size, french_size))
     R = set(range(english_size))
 
     #Compute neighbors
-    french_neighs, french_co_neighs = neighbors(french_cv, french_size)
-    english_neighs, english_co_neighs = neighbors(english_cv, english_size)
+    #french_neighs, french_co_neighs = neighbors(french_cv, french_size)
+    #english_neighs, english_co_neighs = neighbors(english_cv, english_size)
     
     #Initialize P with seed lexicon
+    lexicon_indices = set()
     for wa, wbs in lexicon.items():
+        if wa not in english_words_index:
+            continue
+        i = english_words_index[wa]
+        lexicon_indices.add(i)
+        indices = []
         for wb in wbs:
-            #Temporary hack
-            if wa in english_words_index and wb in french_words_index:
-                P[english_words_index[wa]] = french_words_index[wb]
-                break
+            if wb in french_words_index:
+                indices.append(french_words_index[wb])
+        L = len(indices)
+        if L:
+            c = 1 / L
+            for j in indices:
+                P[i,j] = c
+            R.remove(i)
 
     #matching_size = initialize(E, delta, P, english_cv, french_cv, english_size, french_size)
-    matching_size = initialize(delta, P, english_cv, french_cv, english_size, french_size, english_neighs, english_co_neighs)
+    initialize(delta, P, english_cv, french_cv, english_size, french_size, lexicon_indices)
 
     print(delta)
     
-    while matching_size < english_size:
+    while R:
         w, wp, DeltaE = min_argmin_admissible(delta, french_size, R)
-        #for testing only
-        tests=[]
-        for j in range(french_size):
-            if delta[w, j] < 0:
-                tests.append((delta[w, j], french_words[j]))
-        tests = sorted(tests)[:10]
-        print([(t[0]/ tests[0][0],t[1]) for t in tests])
-        #end for testing only
         print(w,wp,DeltaE)
         if DeltaE >= 0:
             break
-        P[w] = wp
+        set_(delta, P, w, french_size)
+        #for testing only
+        tests=[]
+        for j in P[w,:].nonzero()[1]:
+            tests.append((P[w, j], french_words[j]))
+        tests = sorted(tests, reverse=True)
+        print(tests)
+        #end for testing only
         R.remove(w)
-        matching_size += 1
         print('add matching {}->{}, d={}'.format(english_words[w], french_words[wp], DeltaE))
-        update(delta, R, english_cv, french_cv, english_neighs, english_co_neighs, french_neighs, french_co_neighs, w, wp, english_words, french_words)
+        print(len(R))
+        update(delta, R, english_cv, french_cv, french_size, english_size, w, P)
 
     #Compute and show best translations
     translations = {}
     for i, english_word in enumerate(english_words):
         print('Translation for "{0}":'.format(english_word))
-        french_translations = sorted([(french_words[j], delta[i,j])
-                                      for j in range(french_size)],
-                                     key=lambda x: x[1])[:NB_TRANSLATIONS]
+        french_translations = sorted([(french_words[j], P[i,j])
+                                      for j in P[i,:].nonzero()[1]],
+                                     key=lambda x: x[1],
+                                     reverse=True)
         translations[english_word] = french_translations
         for fw in french_translations:
             print('- {0} (score: {1})'.format(*fw))
