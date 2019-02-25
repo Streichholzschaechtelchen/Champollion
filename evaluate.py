@@ -50,7 +50,7 @@ def auto_evaluate_translations(translations_file, solution_file, lexicon_file):
             continue
         for j, english_word in enumerate(english_words):
             if english_word[0] in solution[french_word]:
-                print(english_word[0])
+                print(french_word, english_word[0])
                 if j + 1 in scores:
                     scores[j + 1] += 1
                 else:

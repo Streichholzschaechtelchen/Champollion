@@ -22,6 +22,8 @@ import optimizer as oz
 import greedy as gy
 import greedy2 as gy2
 
+from benchmark import NB_TRANSLATIONS
+
 WORD_REGEXP = r'\w+'
 INDEX_FORMAT = '{0}/index'
 BIG_INDEX_FORMAT = '{0}/big_index'
@@ -405,6 +407,25 @@ def greedy(args, f=words, m=gy):
             json.dump(translations, f, ensure_ascii=False)
     return translations
 
+def combined(args, f=words):
+
+    from tools import _merge
+
+    english_text, french_text = two_texts(f, args)
+    with open(args.l, 'r') as f:
+        lexicon = json.load(f)
+    if args.f:
+        f = args.f
+    else:
+        f = None
+    translations_greedy = gy2.translate(english_text, french_text, lexicon, f)
+    translations_benchmark = bm.translate(english_text, french_text, lexicon)
+    translations = _merge(translations_greedy, translations_benchmark, NB_TRANSLATIONS)
+    if args.o:
+        with open(args.o, 'w') as f:
+            json.dump(translations, f, ensure_ascii=False)
+    return translations
+
 def multiwords(args, print_=True):
 
     if args.a:
@@ -509,6 +530,10 @@ if __name__ == "__main__":
         greedy(args, m=gy2)
     elif args.command == 'multigreedy2':
         greedy(args, f=multiwords, m=gy2)
+    elif args.command == 'combined':
+        combined(args)
+    elif args.command == 'multicombined':
+        combined(args, f=multiwords)
     else:
         print('unknown command {0}'.format(args.command))
     if o and args.o:
